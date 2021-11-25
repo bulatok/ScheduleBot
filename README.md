@@ -1,9 +1,9 @@
 # ScheduleBot
 Можете перенести код к себе
 ```git
-git clone https://github.com/bulatok/ScheduleBot
+$ git clone https://github.com/bulatok/ScheduleBot
 ```
 Потом введите свой токен в `../service/config.go` и запустите бота при помощи команды
-```golang 
-go run main.go
+```bash 
+$ go run main.go
 ```
