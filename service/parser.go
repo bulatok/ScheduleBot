@@ -1,201 +1,121 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/xuri/excelize/v2"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 )
-var Npm = [...]string{"мм121", "ммр121", "мак121", "му121", "мх121", "мв121",
-"мв221", "мв321", "мв421", "ми121", "ми221", "ми321", "мпм121"}
-//const sheet = `Лист1`
 type Para struct{
-	Nomer string
-	Room string
-	Vid string
-	Teach string
-	Name string
-	Vremya string
+	Nomer  string `json:"nomer"`
+	Room   string `json:"room"`
+	Teach  string `json:"teach"`
+	Name   string `json:"name"`
+	Vremya string `json:"vremya"`
 }
 type Day struct{
 	Weekday int
-	Pars []Para
+	Pars    []Para
 }
-type TwoWeeks struct{
-	WeekEven []Day
-	WeekOdd []Day
+func GetToken() string{
+	return os.Getenv("TOKEN")
 }
-func CreateGroups() (map[string]TwoWeeks){
-	res := make(map[string]TwoWeeks)
-	for _, v := range Npm{
-		wOdd := CreateOddWeek(v)
-		wEven := CreateOddWeek(v)
-		res[v] = TwoWeeks{
-			WeekOdd: wOdd,
-			WeekEven: wEven,
+func GetTimezone(timezn string) (*time.Location, error){
+	loc, err := time.LoadLocation(timezn)
+	if err != nil{
+		return nil, err
+	}
+	return loc, nil
+}
+func CreateWeek(sheet string, group string) []Day{
+	f, err := excelize.OpenFile("internal/inno.xlsx")
+	if err != nil{
+		log.Fatal(err)
+	}
+	weekdays := [...]string{"MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"}
+
+	var days []Day
+	var pars []Para
+	curDay := 0
+	b := map[string]string{
+		"B21-01":"B",
+		"B21-02":"C",
+		"B21-03":"D",
+		"B21-04":"E",
+		"B21-05":"F",
+		"B21-06":"G",
+		"B21-07":"H",
+		"B21-08":"I",
+	}
+
+	for i := 4; i <= 98;{
+		// chechking either it is new weekday
+		newDay := false
+		test, err := f.GetCellValue(sheet, "A"+strconv.FormatInt(int64(i), 10))
+		if err != nil{
+			log.Fatal(err)
 		}
+		for _, weekDay := range weekdays{
+			if weekDay == test{
+				newDay = true
+				break
+			}
+		}
+		if newDay{
+			i += 1
+			curDay+=1
+			days = append(days, Day{Weekday: curDay, Pars: pars})
+			pars = nil
+		}
+
+		// Implementation...
+		lesson, _ := f.GetCellValue(sheet, b[group]+strconv.FormatInt(int64(i), 10))
+
+		teacher, _ := f.GetCellValue(sheet, b[group]+strconv.FormatInt(int64(i+1), 10))
+
+		room, _ := f.GetCellValue(sheet, b[group]+strconv.FormatInt(int64(i+2), 10))
+		if strings.HasSuffix(room, ".0"){
+			room = room[:len(room)-2]
+		}
+
+		vremya, _ := f.GetCellValue(sheet, "A"+strconv.FormatInt(int64(i+2), 10))
+		if lesson == ""{
+			i += 3
+			continue
+		}
+		pars = append(pars, Para{
+			Name: lesson,
+			Room: room,
+			Teach: teacher,
+			Vremya: vremya,
+		})
+		i+=3
+	}
+	return days
+}
+func (d *Day) PrettyDay() string{
+	res := ""
+	if len(d.Pars) == 0{
+		res = "🦍чил🦍"
+		return res
+	}
+	for _, v := range d.Pars{
+		if len(v.Name) == 0{
+			continue
+		}
+		res += fmt.Sprintf("%s\n👨‍🏫 %s\n🕐 %s\n🚪%s\n\n",
+			v.Name, v.Teach, v.Vremya, v.Room)
 	}
 	return res
 }
-func (p *Para) prettyPara(){
-	fmt.Println(p.Nomer, p.Vremya, p.Name)
-}
-func CreateDaysImplement(weeks TwoWeeks) []Day{
-	_, v := time.Now().ISOWeek()
-	if v % 2 == 0{
-		return weeks.WeekEven
-	}else{
-		return weeks.WeekOdd
-	}
-}
-func CreateOddWeek(sheet string) ([]Day){
-	f, err := excelize.OpenFile("service/forParseFull.xlsx")
-	if err != nil{
-		log.Fatal(err)
-	}
-	// A день недели
-	// B номер аудитории
-	// C время пары
-	// D аудитория
-	// E вид занятия
-	// F препод
-	// G имя пары
-	b := [...]string{"A", "B", "C", "D", "E", "F", "G"}
-	days := make([]Day, 6)
-	thisDay := &Day{}
-	curDay := 0
-	for i := 16; i <= 92; i++{
-		// если в это время вообще нет пары
-		testZapros1 := "D" + strconv.FormatInt(int64(i), 10)
-		cell, err := f.GetCellValue(sheet, testZapros1)
-		if err != nil{
-			log.Fatal(err)
-		}
-		if len(cell) == 0{
-			continue
-		}
-
-		// если новый день
-		dayName, err := f.GetCellValue(sheet, "A" + strconv.FormatInt(int64(i), 10))
-		if err != nil{
-			log.Fatal(err)
-		}
-		if strings.Contains(dayName, newDay){
-			days[curDay] = *thisDay
-			thisDay = &Day{}
-			curDay += 1
-			continue
-		}
-		// читает пару
-		newPara := &Para{}
-		for _, v := range b{
-			axis := v + strconv.FormatInt(int64(i), 10)
-			cell, err := f.GetCellValue(sheet, axis)
-			if err != nil{
-				log.Fatal(err)
-			}
-			switch v {
-			case "B":
-				newPara.Nomer = cell
-			case "C":
-				newPara.Vremya = cell
-			case "D":
-				newPara.Room = cell
-			case "E":
-				newPara.Vid = cell
-			case "F":
-				newPara.Teach = cell
-			case "G":
-				newPara.Name = cell
-			}
-		}
-		// записывает пару в день
-		thisDay.Weekday = curDay
-		thisDay.Pars = append(thisDay.Pars, *newPara)
-	}
-	return days
-}
-func CreateEvenWeek(sheet string) ([]Day){
-	f, err := excelize.OpenFile("service/forParseFull.xlsx")
-	if err != nil{
-		log.Fatal(err)
-	}
-	// A день недели
-	// B номер аудитории
-	// C время пары
-	// D аудитория
-	// E вид занятия
-	// F препод
-	// G имя пары
-	b := [...]string{"H", "I", "J", "K", "L", "M"}
-	days := make([]Day, 6)
-	thisDay := &Day{}
-	curDay := 0
-	for i := 16; i <= 92; i++{
-		// если в это время вообще нет пары
-		testZapros1 := "D" + strconv.FormatInt(int64(i), 10)
-		cell, err := f.GetCellValue(sheet, testZapros1)
-		if err != nil{
-			log.Fatal(err)
-		}
-		if len(cell) == 0{
-			continue
-		}
-
-		// если новый день
-		dayName, err := f.GetCellValue(sheet, "A" + strconv.FormatInt(int64(i), 10))
-		if err != nil{
-			log.Fatal(err)
-		}
-		if strings.Contains(dayName, newDay){
-			days[curDay] = *thisDay
-			thisDay = &Day{}
-			curDay += 1
-			continue
-		}
-		// читает пару
-		newPara := &Para{}
-		for _, v := range b{
-			axis := v + strconv.FormatInt(int64(i), 10)
-			cell, err := f.GetCellValue(sheet, axis)
-			if err != nil{
-				log.Fatal(err)
-			}
-			switch v {
-			case "L":
-				newPara.Nomer = cell
-			case "M":
-				newPara.Vremya = cell
-			case "K":
-				newPara.Room = cell
-			case "J":
-				newPara.Vid = cell
-			case "I":
-				newPara.Teach = cell
-			case "H":
-				newPara.Name = cell
-			}
-		}
-		// записывает пару в день
-		thisDay.Weekday = curDay
-		thisDay.Pars = append(thisDay.Pars, *newPara)
-	}
-	return days
-}
-func PrettyDays(d []Day){
-	for _, v := range d{
-		fmt.Println(v.Weekday)
-		for _, v2 := range v.Pars{
-			fmt.Println(v2)
-		}
-	}
-}
 func noParsWithClock(d *Day) bool{
-	curr := time.Now()
+	loc, _ := GetTimezone("Europe/Moscow")
+	curr := time.Now().In(loc)
 	if len(d.Pars) == 0{
-
 		return true
 	}
 	paraTime := strings.Split(d.Pars[len(d.Pars) - 1].Vremya, "-")
@@ -220,8 +140,7 @@ func noParsWithClock(d *Day) bool{
 func timeRazn(t1 time.Time, t2 time.Time) (int, int){
 	return t2.Hour() - t1.Hour(), t2.Minute() - t1.Minute()
 }
-
-func (d *Day) PrettyDayWithTimer() string{
+func (d *Day) PrettyWithTimer() string{
 	res := ""
 	if noParsWithClock(d) == true{
 		return "🦍чил🦍"
@@ -232,7 +151,10 @@ func (d *Day) PrettyDayWithTimer() string{
 		if len(v.Name) == 0{
 			continue
 		}
-		timeNow := time.Now()
+		loc, _ := GetTimezone("Europe/Moscow")
+
+		timeNow := time.Now().In(loc)
+
 		//timeNow, err := time.Parse("15:04", "09:00") //для теста(ставит время 09:00)
 		//if err != nil{
 		//	log.Fatal(err)
@@ -251,12 +173,12 @@ func (d *Day) PrettyDayWithTimer() string{
 		// значит сейчас идет эта пара
 		if timeNow.Hour() >= starts.Hour() && timeNow.Minute() >= starts.Minute() && timeNow.Hour() <= ends.Hour() && timeNow.Minute() <= ends.Minute(){
 			hh, mm := timeRazn(timeNow, ends)
-			res += fmt.Sprintf("%s\n👨‍🏫 %s\n🕐 %s\n🚪%s\n🏛%s\n⏸️%dЧ %dM\n\n",
+			res += fmt.Sprintf("%s\n👨‍🏫 %s\n🕐 %s\n🚪%s\n⏸️%dh %dm\n\n",
 				v.Name, v.Teach, v.Vremya, v.Room, hh, mm)
 		}else if timeNow.Hour() <= starts.Hour() && timeNow.Minute() <= starts.Minute(){
 			hh, mm := timeRazn(timeNow, starts)
-			res += fmt.Sprintf("%s\n👨‍🏫 %s\n🕐 %s\n🚪%s\n🏛%s\n▶️%dh %dm\n\n",
-				v.Name, v.Teach, v.Vremya, v.Room, v.Vid, hh, mm)
+			res += fmt.Sprintf("%s\n👨‍🏫 %s\n🕐 %s\n🚪%s\n▶️%dh %dm\n\n",
+				v.Name, v.Teach, v.Vremya, v.Room, hh, mm)
 		}
 		if cnt <= 0{
 			break
@@ -265,18 +187,8 @@ func (d *Day) PrettyDayWithTimer() string{
 	}
 	return res
 }
-func (d *Day) PrettyDay() string{
-	res := ""
-	if len(d.Pars) == 0{
-		res = "🦍чил🦍"
-		return res
-	}
-	for _, v := range d.Pars{
-		if len(v.Name) == 0{
-			continue
-		}
-		res += fmt.Sprintf("%s\n👨‍🏫 %s\n🕐 %s\n🚪%s\n🏛%s\n\n",
-			v.Name, v.Teach, v.Vremya, v.Room, v.Vid)
-	}
-	return res
+
+func GetJSON(days []Day) ([]byte){
+	data ,_ := json.Marshal(days)
+	return data
 }
