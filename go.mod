@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	github.com/xuri/excelize/v2 v2.4.1
+	gopkg.in/telebot.v3 v3.0.0
 	gopkg.in/tucnak/telebot.v2 v2.4.0
 )
 
