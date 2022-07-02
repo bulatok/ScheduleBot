@@ -1,10 +1,11 @@
 package main
 
 import (
-	tb "gopkg.in/tucnak/telebot.v2"
+	tele "gopkg.in/telebot.v3"
 	"log"
 	"os"
-	ss "scheduleBot/service"
+	models "scheduleBot/models"
+	service "scheduleBot/service"
 	"time"
 )
 
@@ -12,124 +13,123 @@ var (
 	grps = []string{"B21-01","B21-02","B21-03","B21-04","B21-05","B21-06","B21-07","B21-08"}
 	weekDays = map[string]int{"ПНД" : 0, "ВТР" : 1, "СРД" : 2, "ЧТВ" : 3, "ПТН" : 4}
 )
-
-
-type conn struct{
-	bot       *tb.Bot
-	btns      map[string]*tb.ReplyMarkup
-	btnsText  map[string][]tb.Btn
-	userGroup string
-	days      []ss.Day
-	port 	  string
+type connection struct{
+	bot       *tele.Bot
+	btns      map[string]*tele.ReplyMarkup
+	btnsText  map[string][]tele.Btn
+	Group 	  models.Group
 }
-func newConn(botSettings tb.Settings) (*conn, error){
-	bot, err := tb.NewBot(botSettings)
+
+func newConnection(botSettings tele.Settings) (*connection, error){
+	bot, err := tele.NewBot(botSettings)
 	if err != nil{
 		return nil, err
 	}
-	return &conn{
+	grp := models.Group{
+		Name: "B21-07",
+		Week: service.CreateWeek("BS1 ", "B21-07"),
+	}
+
+	return &connection{
 		bot: bot,
-		days: ss.CreateWeek("BS1 ", "B21-07"),
-		btns: make(map[string]*tb.ReplyMarkup),
-		btnsText: make(map[string][]tb.Btn),
-		userGroup: "B21-01",
+		Group: grp,
+		btns: make(map[string]*tele.ReplyMarkup),
+		btnsText: make(map[string][]tele.Btn),
 	}, nil
 }
-func (c *conn) createButtons(buttonName string, needResize bool, buttonTexts ...string){
-	c.btns[buttonName] = &tb.ReplyMarkup{ResizeReplyKeyboard: needResize}
+func (conn *connection) createButtons(buttonName string, needResize bool, buttonTexts ...string){
+	conn.btns[buttonName] = &tele.ReplyMarkup{ResizeKeyboard: needResize}
 
-	var rows []tb.Row
+	var rows []tele.Row
 
 	for _, buttonText := range buttonTexts{
-		curButton := c.btns[buttonName].Text(buttonText)
-		c.btnsText[buttonName] = append(c.btnsText[buttonName], curButton)
-		rows = append(rows, c.btns[buttonName].Row(curButton))
+		curButton := conn.btns[buttonName].Text(buttonText)
+		conn.btnsText[buttonName] = append(conn.btnsText[buttonName], curButton)
+		rows = append(rows, conn.btns[buttonName].Row(curButton))
 	}
-	c.btns[buttonName].Reply(
+	conn.btns[buttonName].Reply(
 		rows...
-	)
+		)
 }
-func (c *conn)  buttonsSetup(){
+func (conn *connection)  buttonsSetup(){
 	// creating buttons #1
-	c.createButtons("r1", false, grps...)
+	conn.createButtons("r1", false, grps...)
 
 	// creating buttons #2
-	c.createButtons("r2", true,"СЕЙЧАС❗️", "ДЕНЬ⌛️")
+	conn.createButtons("r2", true,"СЕЙЧАС❗️", "ДЕНЬ⌛️")
 
 	// creating buttons #3
-	c.createButtons("r3", true,"ПНД", "ВТР", "СРД", "ЧТВ", "ПТН")
-
-
+	conn.createButtons("r3", true,"ПНД", "ВТР", "СРД", "ЧТВ", "ПТН")
 }
-func (c *conn) HandleStart(){
-	c.bot.Handle("/start", func(m *tb.Message) {
-		c.bot.Send(m.Sender, "Hello! choose group below", c.btns["r1"])
+func (conn *connection) HandleStart(){
+	conn.bot.Handle("/start", func(context tele.Context) error {
+		return context.Send("Hello! choose group below", conn.btns["r1"])
 	})
 }
-func (c *conn) HandleEdit(){
-	c.bot.Handle("/edit", func(m *tb.Message) {
-		c.bot.Send(m.Sender, "Какая группа?", c.btns["r1"])
+func (conn *connection) HandleEdit(){
+	conn.bot.Handle("/edit", func(context tele.Context) error {
+		return context.Send("Какая группа?", conn.btns["r1"])
 	})
 }
-func (c *conn) HandleGroupButton(){
-	for _, someBtn := range c.btnsText["r1"]{
-		c.bot.Handle(&someBtn, func(m *tb.Message) {
-			c.userGroup = m.Text
-			c.days = ss.CreateWeek("BS1 ", c.userGroup)
-			c.bot.Send(m.Sender, "Ваши данные успешно сохранены "+c.userGroup, c.btns["r2"])
+func (conn *connection) HandleGroupButton(){
+	for _, someBtn := range conn.btnsText["r1"]{
+		conn.bot.Handle(&someBtn, func(context tele.Context) error {
+			conn.Group.Name = context.Text()
+			conn.Group.Week = service.CreateWeek("BS1 ", conn.Group.Name)
+			return context.Send("Ваши данные успешно сохранены "+conn.Group.Name, conn.btns["r2"])
 		})
 	}
 }
-func (c *conn) HandleNowDayButton(){
-	for _, someBtn := range c.btnsText["r2"]{
+func (conn *connection) HandleNowDayButton(){
+	for _, someBtn := range conn.btnsText["r2"]{
 		switch someBtn.Text {
 		case "СЕЙЧАС❗️":
-			c.bot.Handle(&someBtn, func(m *tb.Message) {
+			conn.bot.Handle(&someBtn, func(context tele.Context) error {
 				idx := int(time.Now().Weekday()) - 1
-				if idx == -1 { // если воскресенье
-					c.bot.Send(m.Sender, "🦍чил🦍", c.btns["r2"])
-					return
+				if idx == -1 || len(conn.Group.Week) <= idx{ // если воскресенье
+					return context.Send("🦍чил🦍", conn.btns["r2"])
 				}
-				curday := c.days[idx]
-				c.bot.Send(m.Sender, curday.PrettyWithTimer(), c.btns["r2"])
+				curday := conn.Group.Week[idx]
+				return context.Send(curday.PrettyWithTimer(), conn.btns["r2"])
 			})
 		case "ДЕНЬ⌛️":
-			c.bot.Handle(&someBtn, func (m *tb.Message){
-				c.bot.Send(m.Sender, "Выберете день", c.btns["r3"])
+			conn.bot.Handle(&someBtn, func(context tele.Context) error {
+				return context.Send("Выберете день", conn.btns["r3"])
 			})
 		}
 	}
 
 }
-func (c *conn) HandleWeekDayButton(){
-	for _, someBtn := range c.btnsText["r3"]{
-		c.bot.Handle(&someBtn, func(m *tb.Message){
-			curday := c.days[weekDays[m.Text]]
-			c.bot.Send(m.Sender, curday.PrettyDay(), c.btns["r2"])
+func (conn *connection) HandleWeekDayButton(){
+	for _, someBtn := range conn.btnsText["r3"]{
+		conn.bot.Handle(&someBtn, func(context tele.Context) error {
+			curday := conn.Group.Week[weekDays[context.Text()]]
+			return context.Send(curday.PrettyDay(), conn.btns["r2"])
 		})
 	}
 }
 func main(){
-
-	conn1, err := newConn(tb.Settings{
-		Token: os.Getenv("TOKEN"),
-		Poller: &tb.LongPoller{Timeout: time.Minute*5},
+	token := os.Getenv("TOKEN")
+	if token == ""{
+		log.Fatal("need to set TOKEN")
+	}
+	
+	conn, err := newConnection(tele.Settings{
+		Token: token,
+		Poller: &tele.LongPoller{Timeout: 10*time.Second},
 	})
-
 	if err != nil{
 		log.Fatal(err)
 	}
+	conn.buttonsSetup()
 
-	conn1.buttonsSetup()
+	conn.HandleStart()
+	conn.HandleEdit()
 
-	conn1.HandleStart()
-	conn1.HandleEdit()
-
-	conn1.HandleGroupButton()
-	conn1.HandleWeekDayButton()
-	conn1.HandleNowDayButton()
-
+	conn.HandleGroupButton()
+	conn.HandleWeekDayButton()
+	conn.HandleNowDayButton()
 
 	log.Println("started running a bot")
-	conn1.bot.Start()
+	conn.bot.Start()
 }
